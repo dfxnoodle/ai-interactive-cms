@@ -64,8 +64,6 @@ class EnhancedBackgroundAnimations {
             'emoji-brain': '🧠'
         };
         
-        console.log('Creating geometric shapes...', shapeCount);
-        
         for (let i = 0; i < shapeCount; i++) {
             const shape = document.createElement('div');
             const shapeType = shapeTypes[Math.floor(Math.random() * shapeTypes.length)];
@@ -75,7 +73,6 @@ class EnhancedBackgroundAnimations {
                 shape.className = `shape emoji ${emojiType}`;
                 shape.textContent = emojis[shapeType];
                 shape.style.fontSize = `${Math.random() * 20 + 30}px`; // Random size between 30-50px
-                console.log(`Created emoji shape: ${emojis[shapeType]} with class: ${shape.className}`);
             } else {
                 shape.className = `shape ${shapeType}`;
             }
@@ -89,8 +86,6 @@ class EnhancedBackgroundAnimations {
             this.shapesContainer.appendChild(shape);
             this.shapes.push(shape);
         }
-        
-        console.log('Shapes created:', this.shapes.length);
     }
 
     addMouseInteractions() {
@@ -149,6 +144,27 @@ class EnhancedBackgroundAnimations {
         setInterval(() => {
             this.addRandomParticle();
         }, 5000);
+    }
+
+    updateTheme(theme) {
+        // Update particle colors based on theme
+        const darkColors = ['#667eea', '#764ba2', '#00ffff', '#ff6b6b', '#4ecdc4', '#45b7d1', '#f093fb', '#f5576c'];
+        const lightColors = ['#4a90e2', '#6c5ce7', '#00b894', '#fd79a8', '#00cec9', '#74b9ff', '#a29bfe', '#fd63a3'];
+        
+        const colors = theme === 'light' ? lightColors : darkColors;
+        
+        // Update existing particles
+        this.particles.forEach(particle => {
+            const color = colors[Math.floor(Math.random() * colors.length)];
+            particle.style.background = `radial-gradient(circle, ${color}, transparent)`;
+            particle.style.boxShadow = `0 0 ${Math.random() * 15 + 5}px ${color}`;
+        });
+        
+        // Update circuit background opacity for light theme
+        const circuitBg = document.querySelector('.circuit-background');
+        if (circuitBg) {
+            circuitBg.style.opacity = theme === 'light' ? '0.2' : '0.4';
+        }
     }
 
     addRandomParticle() {
@@ -320,7 +336,8 @@ class CircuitBrainBackground {
     }
 
     getRandomColor() {
-        const colors = [
+        const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+        const darkColors = [
             '#667eea',
             '#764ba2', 
             '#00ffff',
@@ -330,6 +347,18 @@ class CircuitBrainBackground {
             '#96ceb4',
             '#ffd93d'
         ];
+        const lightColors = [
+            '#4a90e2',
+            '#6c5ce7',
+            '#00b894',
+            '#fd79a8',
+            '#00cec9',
+            '#74b9ff',
+            '#a29bfe',
+            '#fdcb6e'
+        ];
+        
+        const colors = currentTheme === 'light' ? lightColors : darkColors;
         return colors[Math.floor(Math.random() * colors.length)];
     }
 
@@ -638,7 +667,7 @@ class AICMSClient {
         return `💬 ${lastSentences}`;
     }
 
-    extractLastSentences(text, maxSentences = 3) {
+    extractLastSentences(text, maxSentences = 4) {
         // Clean the text first
         let cleanedText = text.trim();
         
@@ -842,6 +871,59 @@ class AICMSClient {
 // Initialize the client
 const aiCMS = new AICMSClient();
 
+// Theme Management
+class ThemeManager {
+    constructor() {
+        this.currentTheme = this.getStoredTheme() || 'dark';
+        this.init();
+    }
+
+    init() {
+        this.applyTheme(this.currentTheme);
+        this.updateThemeIcon();
+    }
+
+    getStoredTheme() {
+        return localStorage.getItem('cms-theme');
+    }
+
+    setStoredTheme(theme) {
+        localStorage.setItem('cms-theme', theme);
+    }
+
+    applyTheme(theme) {
+        document.documentElement.setAttribute('data-theme', theme);
+        this.currentTheme = theme;
+        this.setStoredTheme(theme);
+        this.updateThemeIcon();
+        
+        // Update particles colors for light theme
+        if (window.backgroundAnimations) {
+            window.backgroundAnimations.updateTheme(theme);
+        }
+    }
+
+    toggleTheme() {
+        const newTheme = this.currentTheme === 'dark' ? 'light' : 'dark';
+        this.applyTheme(newTheme);
+    }
+
+    updateThemeIcon() {
+        const themeIcon = document.querySelector('.theme-icon');
+        if (themeIcon) {
+            themeIcon.textContent = this.currentTheme === 'dark' ? '☀️' : '🌙';
+        }
+    }
+}
+
+// Initialize theme manager
+const themeManager = new ThemeManager();
+
+// Global function for theme toggle button
+function toggleTheme() {
+    themeManager.toggleTheme();
+}
+
 // UI Functions
 function sendAIMessage() {
     const input = document.getElementById('chatInput');
@@ -895,6 +977,9 @@ let enhancedBackground;
 document.addEventListener('DOMContentLoaded', function() {
     circuitBackground = new CircuitBrainBackground();
     enhancedBackground = new EnhancedBackgroundAnimations();
+    
+    // Make background animations globally accessible for theme switching
+    window.backgroundAnimations = enhancedBackground;
 });
 
 // Global function to test emoji creation (accessible from browser console)
