@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Interactive CMS</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <!-- Enhanced Animated Background Elements -->
+    <div class="floating-particles" id="floatingParticles"></div>
+    <div class="geometric-shapes" id="geometricShapes"></div>
+    
+    <div class="connection-status" id="connectionStatus">Disconnected</div>
+    
+    <div class="container">
+        <div class="header">
+            <h1> AI Interactive CMS 🤖</h1>
+            <p>AI-powered Content Management System</p>
+        </div>
+
+        <div class="main-content">
+            <!-- Chat Panel -->
+            <div class="chat-panel" id="chatPanel">
+                <div class="panel-header">
+                    💬 AI Chat Interface
+                </div>
+                <div class="collapsed-indicator">💬 Chat</div>
+                <div class="panel-content">
+                    <div class="chat-messages" id="chatMessages">
+                        <div class="message system-message">
+                            Welcome to AI Interactive CMS! You can:
+                            <br>• Chat with AI to generate or modify code
+                            <br>• Get help with coding concepts and questions
+                            <br>• Manage your project files with AI assistance
+                        </div>
+                    </div>
+                    
+                    <div class="input-section">
+                        <div class="input-group">
+                            <div class="label-with-checkbox">
+                                <label class="input-label">AI Prompt</label>
+                                <label class="checkbox-label inline-checkbox">
+                                    <input type="checkbox" id="autoSaveChat" checked>
+                                    Auto-save
+                                </label>
+                            </div>
+                            <textarea class="chat-input" id="chatInput" 
+                                    placeholder="Ask AI to help with your code, generate files, or explain concepts..."></textarea>
+                        </div>
+                        <div class="button-group">
+                            <button class="btn btn-primary" id="sendAIButton" onclick="sendAIMessage()">Send to AI</button>
+                            <button class="btn btn-secondary" onclick="clearChat()">Clear</button>
+                            <button class="btn btn-secondary" onclick="viewConversationHistory()">History</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+
+        </div>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>

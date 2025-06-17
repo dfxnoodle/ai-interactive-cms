@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emoji Test</title>
+    <style>
+        body {
+            background: #0a0a0a;
+            color: white;
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        .emoji-test {
+            font-size: 40px;
+            margin: 20px;
+            text-shadow: 0 0 15px rgba(102, 126, 234, 0.5);
+            filter: drop-shadow(0 0 12px rgba(102, 126, 234, 0.6));
+        }
+        .animated-emoji {
+            position: absolute;
+            font-size: 40px;
+            animation: robotFloat 20s ease-in-out infinite;
+        }
+        @keyframes robotFloat {
+            0%, 100% { 
+                transform: translateX(0) translateY(0) rotate(0deg) scale(1); 
+                opacity: 0.6;
+                filter: drop-shadow(0 0 8px rgba(102, 126, 234, 0.4));
+            }
+            25% { 
+                transform: translateX(30px) translateY(-15px) rotate(5deg) scale(1.1); 
+                opacity: 0.8;
+                filter: drop-shadow(0 0 12px rgba(0, 255, 255, 0.6));
+            }
+            50% { 
+                transform: translateX(-20px) translateY(-25px) rotate(-3deg) scale(0.9); 
+                opacity: 0.7;
+                filter: drop-shadow(0 0 10px rgba(118, 75, 162, 0.5));
+            }
+            75% { 
+                transform: translateX(-35px) translateY(-10px) rotate(8deg) scale(1.05); 
+                opacity: 0.9;
+                filter: drop-shadow(0 0 15px rgba(102, 126, 234, 0.7));
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>Emoji Test Page</h1>
+    <div class="emoji-test">Static Robot: 🤖</div>
+    <div class="emoji-test">Static Brain: 🧠</div>
+    <div class="animated-emoji" style="top: 200px; left: 50px;">🤖</div>
+    <div class="animated-emoji" style="top: 200px; left: 150px;">🧠</div>
+    
+    <button onclick="addTestEmoji()">Add Test Emoji</button>
+    
+    <script>
+        function addTestEmoji() {
+            const emoji = document.createElement('div');
+            emoji.style.position = 'absolute';
+            emoji.style.fontSize = '40px';
+            emoji.style.left = Math.random() * 80 + '%';
+            emoji.style.top = Math.random() * 80 + '%';
+            emoji.style.animation = 'robotFloat 10s ease-in-out infinite';
+            emoji.textContent = Math.random() > 0.5 ? '🤖' : '🧠';
+            document.body.appendChild(emoji);
+        }
+    </script>
+</body>
+</html>

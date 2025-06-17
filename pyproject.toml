@@ -1,0 +1,28 @@
+[project]
+name = "ai-interactive-cms"
+version = "0.1.0"
+description = "AI-powered interactive Content Management System with Codex CLI integration"
+authors = [
+    { name = "Your Name", email = "your.email@example.com" }
+]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi==0.115.12",
+    "uvicorn==0.34.3",
+    "websockets==12.0",
+    "python-multipart==0.0.6",
+    "python-dotenv>=1.1.0",
+    "watchdog>=6.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/ai-interactive-cms"
+Repository = "https://github.com/yourusername/ai-interactive-cms"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
