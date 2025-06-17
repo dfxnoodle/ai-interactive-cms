@@ -498,21 +498,23 @@ class AICMSClient {
         
         const result = data.result;
         let responseText = '';
+        let fullDetails = '';
         
         console.log('AI Response received:', result);
         
         if (result.success) {
-            responseText = result.stdout || 'AI response received successfully';
+            let rawResponse = result.stdout || 'AI response received successfully';
             
-            // Clean up any remaining escape characters and formatting
-            responseText = responseText
-                .replace(/\\n/g, '\n')
-                .replace(/\\"/g, '"')
-                .trim();
+            // Parse and clean the AI response
+            fullDetails = this.parseAIResponse(rawResponse);
                 
             // If response is empty, show a default message
-            if (!responseText || responseText.length < 3) {
-                responseText = "I'm here to help! Please ask me a specific question or request assistance with coding, explanations, or any other task.";
+            if (!fullDetails || fullDetails.length < 3) {
+                fullDetails = "I'm here to help! Please ask me a specific question or request assistance with coding, explanations, or any other task.";
+                responseText = fullDetails;
+            } else {
+                // Generate a concise summary
+                responseText = this.generateResponseSummary(fullDetails, data.prompt);
             }
                 
         } else {
@@ -522,9 +524,159 @@ class AICMSClient {
             if (responseText.includes('API key') || responseText.includes('authentication')) {
                 responseText = "⚠️ AI service configuration needed. Please check your API keys in the backend configuration.";
             }
+            fullDetails = responseText; // For errors, summary and details are the same
         }
         
-        this.addAIMessage(responseText);
+        // Use enhanced message format if we have substantial details
+        if (fullDetails.length > 150 && responseText !== fullDetails) {
+            this.addAIMessage(responseText, fullDetails);
+        } else {
+            this.addAIMessage(responseText);
+        }
+    }
+
+    parseAIResponse(rawResponse) {
+        // Clean up any remaining escape characters and formatting
+        let cleaned = rawResponse
+            .replace(/\\n/g, '\n')
+            .replace(/\\"/g, '"')
+            .trim();
+        
+        // Try to extract actual content from JSON-like responses
+        const lines = cleaned.split('\n');
+        const contentLines = [];
+        
+        for (const line of lines) {
+            const trimmed = line.trim();
+            
+            // Skip empty lines
+            if (!trimmed) continue;
+            
+            // Skip JSON-like lines
+            if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+                try {
+                    JSON.parse(trimmed);
+                    continue; // Skip valid JSON lines
+                } catch (e) {
+                    // Not valid JSON, keep it
+                }
+            }
+            
+            // Skip lines that look like debug output
+            if (trimmed.startsWith('Executing') || 
+                trimmed.startsWith('Codex') || 
+                trimmed.includes('exit code') ||
+                trimmed.includes('stdout:') ||
+                trimmed.includes('stderr:')) {
+                continue;
+            }
+            
+            // Keep content lines
+            contentLines.push(line);
+        }
+        
+        // If we found content lines, use those
+        if (contentLines.length > 0) {
+            return contentLines.join('\n').trim();
+        }
+        
+        // Fallback: return the original cleaned response
+        return cleaned;
+    }
+
+    generateResponseSummary(fullResponse, userPrompt) {
+        const response = fullResponse.toLowerCase();
+        const prompt = (userPrompt || '').toLowerCase();
+        
+        // Detect response type and generate appropriate summary
+        if (response.includes('file') && (response.includes('created') || response.includes('generated') || response.includes('modified'))) {
+            // File operation detected
+            const fileMatches = fullResponse.match(/['""]([^'""]+\.(html|css|js|py|txt|md|json))['""]?/gi);
+            if (fileMatches && fileMatches.length > 0) {
+                const fileName = fileMatches[0].replace(/['"]/g, '');
+                if (response.includes('created') || response.includes('generated')) {
+                    return `✅ Created file: ${fileName}`;
+                } else if (response.includes('modified') || response.includes('updated')) {
+                    return `✅ Modified file: ${fileName}`;
+                }
+            }
+            return `✅ File operation completed successfully`;
+        }
+        
+        if (response.includes('error') || response.includes('failed') || response.includes('problem')) {
+            // Error or problem response - show the actual error
+            return `⁉️ ${this.extractLastSentences(fullResponse, 3)}`;
+        }
+        
+        if (response.includes('code') || response.includes('function') || response.includes('class') || response.includes('```')) {
+            // Code-related response
+            if (prompt.includes('create') || prompt.includes('generate') || prompt.includes('write')) {
+                return `💻 ${this.extractLastSentences(fullResponse)}`;
+            } else if (prompt.includes('fix') || prompt.includes('debug') || prompt.includes('error')) {
+                return `🔧 ${this.extractLastSentences(fullResponse)}`;
+            } else {
+                return `💻 ${this.extractLastSentences(fullResponse)}`;
+            }
+        }
+        
+        // For all other cases, use the last few sentences
+        const lastSentences = this.extractLastSentences(fullResponse);
+        
+        if (response.includes('explanation') || response.includes('explain') || prompt.includes('explain') || prompt.includes('what is') || prompt.includes('how does')) {
+            return `📚 ${lastSentences}`;
+        }
+        
+        if (response.includes('install') || response.includes('setup') || response.includes('configure')) {
+            return `⚙️ ${lastSentences}`;
+        }
+        
+        if (response.includes('best practice') || response.includes('recommendation') || response.includes('should')) {
+            return `💡 ${lastSentences}`;
+        }
+        
+        // Default: Use the last sentences with a chat icon
+        return `💬 ${lastSentences}`;
+    }
+
+    extractLastSentences(text, maxSentences = 3) {
+        // Clean the text first
+        let cleanedText = text.trim();
+        
+        // Split into sentences using multiple delimiters
+        const sentences = cleanedText.split(/[.!?]+/).map(s => s.trim()).filter(s => s.length > 0);
+        
+        // Filter out technical/debug sentences
+        const meaningfulSentences = sentences.filter(sentence => {
+            const s = sentence.toLowerCase();
+            return sentence.length > 10 && 
+                   sentence.length < 300 &&
+                   !s.startsWith('executing') &&
+                   !s.startsWith('codex') &&
+                   !s.includes('exit code') &&
+                   !s.includes('stdout:') &&
+                   !s.includes('stderr:') &&
+                   !s.includes('api key') &&
+                   !/^\s*[\{\[]/.test(sentence) && // Not starting with JSON
+                   !sentence.match(/^[A-Z_]+:/); // Not debug prefixes
+        });
+        
+        if (meaningfulSentences.length === 0) {
+            // Fallback: use lines instead of sentences
+            const lines = cleanedText.split('\n').map(l => l.trim()).filter(l => l.length > 10);
+            const lastLines = lines.slice(-maxSentences);
+            return lastLines.join(' ').substring(0, 400);
+        }
+        
+        // Get the last few meaningful sentences
+        const lastSentences = meaningfulSentences.slice(-maxSentences);
+        const result = lastSentences.join('. ');
+        
+        // Truncate if too long
+        if (result.length > 400) {
+            return result.substring(0, 197) + '...';
+        }
+        
+        return result;
     }
 
 
@@ -548,17 +700,75 @@ class AICMSClient {
         });
     }
 
-    addChatMessage(content, isUser = false) {
+    addAIMessage(content, fullDetails = null) {
         const messagesContainer = document.getElementById('chatMessages');
         const messageDiv = document.createElement('div');
-        messageDiv.className = `message ${isUser ? 'user-message' : 'ai-message'}`;
-        messageDiv.textContent = content;
+        messageDiv.className = `message ${fullDetails ? 'ai-message-enhanced' : 'ai-message'}`;
+        
+        if (fullDetails) {
+            // Enhanced message with summary and details
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'ai-message-content';
+            
+            const summaryDiv = document.createElement('div');
+            summaryDiv.className = 'ai-response-summary';
+            summaryDiv.textContent = content;
+            
+            const detailsDiv = document.createElement('div');
+            detailsDiv.className = 'ai-response-details';
+            detailsDiv.textContent = `Click info icon to view full response (${fullDetails.length} chars)`;
+            
+            contentDiv.appendChild(summaryDiv);
+            contentDiv.appendChild(detailsDiv);
+            
+            const infoDiv = document.createElement('div');
+            infoDiv.className = 'ai-message-info';
+            
+            const infoIcon = document.createElement('div');
+            infoIcon.className = 'info-icon';
+            infoIcon.textContent = 'i';
+            infoIcon.title = 'Click to view full response details';
+            
+            // Store the full details on the icon for the modal
+            infoIcon.setAttribute('data-full-response', fullDetails);
+            
+            infoIcon.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.showResponseModal(fullDetails);
+            });
+            
+            infoDiv.appendChild(infoIcon);
+            
+            messageDiv.appendChild(contentDiv);
+            messageDiv.appendChild(infoDiv);
+        } else {
+            // Simple message
+            messageDiv.textContent = content;
+        }
+        
         messagesContainer.appendChild(messageDiv);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
 
-    addAIMessage(content) {
-        this.addChatMessage(content, false);
+    showResponseModal(fullResponse) {
+        const modal = document.getElementById('responseModal');
+        const content = document.getElementById('modalResponseContent');
+        
+        content.textContent = fullResponse;
+        modal.classList.add('show');
+        
+        // Store the response for copying
+        window.currentModalResponse = fullResponse;
+    }
+
+    addUserMessage(content) {
+        const messagesContainer = document.getElementById('chatMessages');
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'message user-message';
+        messageDiv.textContent = content;
+        
+        messagesContainer.appendChild(messageDiv);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
 
     addLoadingMessage() {
@@ -646,7 +856,7 @@ function sendAIMessage() {
         return;
     }
     
-    aiCMS.addChatMessage(input.value, true); // Show original message to user
+    aiCMS.addUserMessage(input.value); // Show original message to user
     aiCMS.addLoadingMessage();
     aiCMS.sendMessage('ai_chat', { 
         prompt: message,
@@ -695,6 +905,47 @@ function testEmojis() {
         console.log('Enhanced background not initialized yet');
     }
 }
+
+// Modal control functions
+function closeResponseModal() {
+    const modal = document.getElementById('responseModal');
+    modal.classList.remove('show');
+}
+
+function copyResponseToClipboard() {
+    if (window.currentModalResponse) {
+        navigator.clipboard.writeText(window.currentModalResponse).then(() => {
+            // Temporarily change button text to show success
+            const copyBtn = document.querySelector('.modal-footer .btn-primary');
+            const originalText = copyBtn.textContent;
+            copyBtn.textContent = 'Copied!';
+            copyBtn.style.background = '#28a745';
+            
+            setTimeout(() => {
+                copyBtn.textContent = originalText;
+                copyBtn.style.background = '';
+            }, 2000);
+        }).catch(err => {
+            console.error('Failed to copy: ', err);
+            alert('Failed to copy to clipboard');
+        });
+    }
+}
+
+// Close modal when clicking outside of it
+document.addEventListener('click', (e) => {
+    const modal = document.getElementById('responseModal');
+    if (e.target === modal) {
+        closeResponseModal();
+    }
+});
+
+// Close modal with Escape key
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        closeResponseModal();
+    }
+});
 
 // Clean up background when page unloads
 window.addEventListener('beforeunload', function() {
