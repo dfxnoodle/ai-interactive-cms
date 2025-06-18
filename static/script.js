@@ -571,6 +571,26 @@ class AICMSClient {
             .replace(/\\"/g, '"')
             .trim();
         
+        // First, try to identify if this is primarily code vs text response
+        const codeIndicators = [
+            /```[\s\S]*?```/g,  // Code blocks
+            /<[^>]+>/g,         // HTML tags
+            /{\s*[^}]*}/g,      // Object literals
+            /function\s+\w+/g,  // Function declarations
+            /class\s+\w+/g,     // Class declarations
+            /import\s+/g,       // Import statements
+            /export\s+/g        // Export statements
+        ];
+        
+        let codeMatches = 0;
+        for (const regex of codeIndicators) {
+            const matches = cleaned.match(regex);
+            if (matches) codeMatches += matches.length;
+        }
+        
+        // If this is primarily a code response, be more careful about extraction
+        const isPrimarylyCode = codeMatches > 3;
+        
         // Try to extract actual content from JSON-like responses
         const lines = cleaned.split('\n');
         const contentLines = [];
@@ -598,6 +618,21 @@ class AICMSClient {
                 trimmed.includes('stdout:') ||
                 trimmed.includes('stderr:')) {
                 continue;
+            }
+            
+            // If this is primarily code, be more selective about what we keep
+            if (isPrimarylyCode) {
+                // Keep lines that look like explanatory text, not just code fragments
+                const isCodeFragment = (
+                    /^[})\];,]*$/.test(trimmed) ||           // Just closing brackets/semicolons
+                    /^<\/[^>]+>$/.test(trimmed) ||           // Just closing HTML tags
+                    /^[{(\[]*$/.test(trimmed) ||             // Just opening brackets
+                    (trimmed.length < 20 && /^[^a-zA-Z]*$/.test(trimmed)) // Short non-alphabetic
+                );
+                
+                if (isCodeFragment) {
+                    continue;
+                }
             }
             
             // Keep content lines
@@ -640,9 +675,9 @@ class AICMSClient {
         if (response.includes('code') || response.includes('function') || response.includes('class') || response.includes('```')) {
             // Code-related response
             if (prompt.includes('create') || prompt.includes('generate') || prompt.includes('write')) {
-                return `💻 ${this.extractLastSentences(fullResponse)}`;
+                return `💻 ${this.extractLastSentences(fullResponse, 5)}`;
             } else if (prompt.includes('fix') || prompt.includes('debug') || prompt.includes('error')) {
-                return `🔧 ${this.extractLastSentences(fullResponse)}`;
+                return `🔧 ${this.extractLastSentences(fullResponse, 5)}`;
             } else {
                 return `💻 ${this.extractLastSentences(fullResponse)}`;
             }
@@ -671,12 +706,53 @@ class AICMSClient {
         // Clean the text first
         let cleanedText = text.trim();
         
-        // Split into sentences using multiple delimiters
-        const sentences = cleanedText.split(/[.!?]+/).map(s => s.trim()).filter(s => s.length > 0);
+        // First, extract and preserve code blocks to avoid splitting them
+        const codeBlocks = [];
+        let textWithPlaceholders = cleanedText;
         
-        // Filter out technical/debug sentences
+        // Extract code blocks (```...```)
+        const codeBlockRegex = /```[\s\S]*?```/g;
+        let match;
+        let placeholderIndex = 0;
+        while ((match = codeBlockRegex.exec(cleanedText)) !== null) {
+            const placeholder = `__CODE_BLOCK_${placeholderIndex}__`;
+            codeBlocks.push({ placeholder, content: match[0] });
+            textWithPlaceholders = textWithPlaceholders.replace(match[0], placeholder);
+            placeholderIndex++;
+        }
+        
+        // Extract inline code (`...`)
+        const inlineCodeRegex = /`[^`]+`/g;
+        while ((match = inlineCodeRegex.exec(textWithPlaceholders)) !== null) {
+            const placeholder = `__INLINE_CODE_${placeholderIndex}__`;
+            codeBlocks.push({ placeholder, content: match[0] });
+            textWithPlaceholders = textWithPlaceholders.replace(match[0], placeholder);
+            placeholderIndex++;
+        }
+        
+        // Extract HTML/XML tags to avoid splitting on attributes
+        const htmlTagRegex = /<[^>]+>/g;
+        while ((match = htmlTagRegex.exec(textWithPlaceholders)) !== null) {
+            const placeholder = `__HTML_TAG_${placeholderIndex}__`;
+            codeBlocks.push({ placeholder, content: match[0] });
+            textWithPlaceholders = textWithPlaceholders.replace(match[0], placeholder);
+            placeholderIndex++;
+        }
+        
+        // Split into sentences using multiple delimiters, but be more careful
+        const sentences = textWithPlaceholders.split(/[.!?]+/).map(s => s.trim()).filter(s => s.length > 0);
+        
+        // Filter out technical/debug sentences and code fragments
         const meaningfulSentences = sentences.filter(sentence => {
             const s = sentence.toLowerCase();
+            
+            // Check if it's mostly placeholders (code content)
+            const placeholderCount = (sentence.match(/__[A-Z_]+_\d+__/g) || []).length;
+            const words = sentence.split(/\s+/).length;
+            if (placeholderCount > words * 0.5) {
+                return false; // Skip if more than half is code placeholders
+            }
+            
             return sentence.length > 10 && 
                    sentence.length < 300 &&
                    !s.startsWith('executing') &&
@@ -686,19 +762,57 @@ class AICMSClient {
                    !s.includes('stderr:') &&
                    !s.includes('api key') &&
                    !/^\s*[\{\[]/.test(sentence) && // Not starting with JSON
-                   !sentence.match(/^[A-Z_]+:/); // Not debug prefixes
+                   !sentence.match(/^[A-Z_]+:/) && // Not debug prefixes
+                   !sentence.includes('});') && // Not ending JS code
+                   !sentence.includes('</html>') && // Not HTML closing tags
+                   !sentence.includes('</div>') && // Not HTML closing tags
+                   !sentence.includes('</body>') && // Not HTML closing tags
+                   !sentence.includes('</script>') && // Not script tags
+                   !sentence.includes('</style>') && // Not style tags
+                   !/^\s*[}]\s*$/.test(sentence) && // Not just closing braces
+                   !/^\s*[;]\s*$/.test(sentence); // Not just semicolons
         });
         
         if (meaningfulSentences.length === 0) {
-            // Fallback: use lines instead of sentences
-            const lines = cleanedText.split('\n').map(l => l.trim()).filter(l => l.length > 10);
-            const lastLines = lines.slice(-maxSentences);
-            return lastLines.join(' ').substring(0, 400);
+            // Fallback: try to extract meaningful content from lines
+            const lines = textWithPlaceholders.split('\n').map(l => l.trim()).filter(l => {
+                const line = l.toLowerCase();
+                return l.length > 10 && 
+                       !line.startsWith('executing') &&
+                       !line.includes('exit code') &&
+                       !line.includes('stdout:') &&
+                       !line.includes('stderr:') &&
+                       !/^\s*[\{\[]/.test(l) &&
+                       !l.includes('});') &&
+                       !l.includes('</html>') &&
+                       !l.includes('</div>') &&
+                       !l.includes('</body>');
+            });
+            
+            if (lines.length > 0) {
+                const lastLines = lines.slice(-maxSentences);
+                let result = lastLines.join(' ');
+                
+                // Restore code content
+                for (const codeBlock of codeBlocks) {
+                    result = result.replace(codeBlock.placeholder, codeBlock.content);
+                }
+                
+                return result.substring(0, 400);
+            }
+            
+            // Last resort: return original text without code
+            return textWithPlaceholders.substring(0, 400);
         }
         
         // Get the last few meaningful sentences
         const lastSentences = meaningfulSentences.slice(-maxSentences);
-        const result = lastSentences.join('. ');
+        let result = lastSentences.join('. ');
+        
+        // Restore code content in the final result
+        for (const codeBlock of codeBlocks) {
+            result = result.replace(new RegExp(codeBlock.placeholder, 'g'), codeBlock.content);
+        }
         
         // Truncate if too long
         if (result.length > 400) {
